@@ -2,9 +2,11 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 const PUBLIC_FILE = /\.(.*)$/;
+const isDev = process.env.NODE_ENV === 'development';
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const response = NextResponse.next();
 
   // Skip if it's a static file or an API route
   if (
@@ -13,49 +15,49 @@ export function middleware(request: NextRequest) {
     pathname.startsWith('/static') ||
     PUBLIC_FILE.test(pathname)
   ) {
-    return NextResponse.next();
+    return response;
   }
 
-  // Clone the request headers
-  const requestHeaders = new Headers(request.headers);
-  
-  // Set security headers
-  requestHeaders.set('X-Content-Type-Options', 'nosniff');
-  requestHeaders.set('X-Frame-Options', 'SAMEORIGIN');
-  requestHeaders.set('X-XSS-Protection', '1; mode=block');
-  requestHeaders.set('Referrer-Policy', 'strict-origin-when-cross-origin');
-  
-  // Add security headers to the response
-  const response = NextResponse.next({
-    request: {
-      headers: requestHeaders,
-    },
+  // Security Headers
+  const securityHeaders = {
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'SAMEORIGIN',
+    'X-XSS-Protection': '1; mode=block',
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
+    'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+    'Strict-Transport-Security': 'max-age=63072000; includeSubDomains; preload',
+  };
+
+  // Performance Headers
+  const performanceHeaders = {
+    'Cache-Control': 'public, max-age=0, must-revalidate',
+    'Vary': 'Accept-Encoding',
+  };
+
+  // Set all headers
+  Object.entries({
+    ...securityHeaders,
+    ...(!isDev && performanceHeaders),
+  }).forEach(([key, value]) => {
+    response.headers.set(key, value);
   });
 
-  // Add security headers to the response
-  response.headers.set('X-Content-Type-Options', 'nosniff');
-  response.headers.set('X-Frame-Options', 'SAMEORIGIN');
-  response.headers.set('X-XSS-Protection', '1; mode=block');
-  response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
-  
-  // Add caching headers for static assets
-  if (pathname.match(/\.(js|css|jpg|jpeg|png|gif|ico|svg|woff|woff2|ttf|eot)$/)) {
-    response.headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+  // Add preload headers for critical resources
+  if (!isDev) {
+    const preloadHeaders = {
+      'Link': '</_next/static/css/app/layout.css>; rel=preload; as=style',
+    };
+    
+    Object.entries(preloadHeaders).forEach(([key, value]) => {
+      response.headers.set(key, value);
+    });
   }
 
   return response;
 }
 
-// Only run this middleware on relevant paths
 export const config = {
   matcher: [
-    /*
-     * Match all request paths except for the ones starting with:
-     * - api (API routes)
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     */
-    '/((?!api|_next/static|_next/image|favicon.ico).*)',
+    '/((?!api|_next/static|_next/image|favicon.ico|sw.js|workbox-*.js).*)',
   ],
 };
